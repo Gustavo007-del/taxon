@@ -1,0 +1,143 @@
+{% load review_extras %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review — Shopify Product Classifier</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 24px; color: #222; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  .filters { display: flex; gap: 8px; margin: 12px 0; flex-wrap: wrap; align-items: center; }
+  .meta { color: #666; font-size: 12px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; color: #fff; white-space: nowrap; }
+  .b-auto_approved, .b-approved { background: #2e7d32; }
+  .b-needs_review { background: #f9a825; color: #333; }
+  .b-pending { background: #757575; }
+  .b-rejected { background: #c62828; }
+  .b-failed { background: #6a1b9a; }
+  .b-completed { background: #2e7d32; }
+  .b-running { background: #1565c0; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; vertical-align: top; text-align: left; }
+  th { background: #f5f5f5; white-space: nowrap; }
+  tr:hover td { background: #fafafa; }
+  img.thumb { max-width: 48px; max-height: 48px; float: left; margin-right: 8px; border: 1px solid #eee; }
+  .actions form { display: inline-block; margin-right: 4px; }
+  .actions select { max-width: 190px; }
+  .pagination { margin-top: 12px; font-size: 13px; }
+  .jobs .badge { margin-right: 6px; }
+</style>
+</head>
+<body>
+<h1>Classification Review</h1>
+
+{% if jobs %}
+<p class="meta jobs">Recent batch jobs:
+  {% for j in jobs %}
+    <span class="badge b-{{ j.status }}">{{ j.job_type }}: {{ j.processed }}/{{ j.total }}{% if j.failed %} ({{ j.failed }} failed){% endif %}</span>
+  {% endfor %}
+</p>
+{% endif %}
+
+<form class="filters" method="get">
+  <select name="status">
+    <option value="">All statuses</option>
+    {% for value, label in status_choices %}
+      <option value="{{ value }}" {% if request.GET.status == value %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <input type="number" name="min_confidence" step="0.01" min="0" max="1" placeholder="Min confidence" value="{{ request.GET.min_confidence }}">
+  <input type="text" name="q" placeholder="Search product # / title" value="{{ request.GET.q }}">
+  <button type="submit">Filter</button>
+  {% if request.GET %}<a href="/">Clear</a>{% endif %}
+</form>
+
+<p class="meta">{{ total }} result(s)
+  {% if request.GET.status %} · status={{ request.GET.status }}{% endif %}
+  {% if request.GET.min_confidence %} · min_confidence={{ request.GET.min_confidence }}{% endif %}
+</p>
+
+<table>
+<thead>
+<tr>
+  <th>Product</th>
+  <th>Predicted category</th>
+  <th>Confidence</th>
+  <th>Method</th>
+  <th>Status</th>
+  <th>Alternatives</th>
+  <th>Actions</th>
+</tr>
+</thead>
+<tbody>
+{% for r in results %}
+<tr>
+  <td>
+    {% if r.product.image_urls %}
+      <img class="thumb" src="{{ r.product.image_urls.0 }}" alt="" onerror="this.style.display='none'">
+    {% endif %}
+    <strong>{{ r.product.product_number }}</strong><br>
+    {{ r.product.title|truncatechars:80 }}<br>
+    <span class="meta">{{ r.product.brand }}</span>
+  </td>
+  <td>
+    {% if r.predicted_category %}{{ r.predicted_category.full_path }}{% else %}<span class="meta">—</span>{% endif %}
+  </td>
+  <td>
+    {% if r.final_confidence %}{{ r.final_confidence|floatformat:3 }}{% else %}<span class="meta">—</span>{% endif %}
+    <span class="meta">(text {% if r.text_confidence %}{{ r.text_confidence|floatformat:3 }}{% else %}—{% endif %}
+      {% if r.image_confidence %} · img {{ r.image_confidence|floatformat:3 }}{% endif %})</span>
+  </td>
+  <td>{{ r.get_method_used_display }}</td>
+  <td><span class="badge b-{{ r.status }}">{{ r.get_status_display }}</span></td>
+  <td>
+    {% for a in r.alternatives|slice:":3" %}
+      <div class="meta">{{ a.name }} ({{ a.score }})</div>
+    {% endfor %}
+  </td>
+  <td class="actions">
+    <form method="post" action="{% url 'review-update' r.id %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="approve">
+      <button type="submit">Approve</button>
+    </form>
+    <form method="post" action="{% url 'review-update' r.id %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="reject">
+      <button type="submit">Reject</button>
+    </form>
+    <form method="post" action="{% url 'review-update' r.id %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="set_category">
+      <select name="category_id">
+        {% if r.predicted_category %}
+          <option value="{{ r.predicted_category.id }}">{{ r.predicted_category.name }} (current)</option>
+        {% endif %}
+        {% for a in r.alternatives|slice:":3" %}
+          {% if a.shopify_gid %}
+            <option value="{{ gid_to_pk|get_item:a.shopify_gid }}">{{ a.name }} ({{ a.score }})</option>
+          {% endif %}
+        {% endfor %}
+        <option value="">— keep current —</option>
+      </select>
+      <button type="submit">Set</button>
+    </form>
+  </td>
+</tr>
+{% empty %}
+<tr><td colspan="7" class="meta">No results match the current filters.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+
+<div class="pagination">
+  {% if page > 1 %}
+    <a href="?{% if base_query %}{{ base_query|urlencode }}&{% endif %}page={{ page|add:-1 }}">← prev</a>
+  {% endif %}
+  page {{ page }} / {{ pages }}
+  {% if page < pages %}
+    <a href="?{% if base_query %}{{ base_query|urlencode }}&{% endif %}page={{ page|add:1 }}">next →</a>
+  {% endif %}
+</div>
+</body>
+</html>

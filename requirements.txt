@@ -1,0 +1,28 @@
+# --- Web framework ---
+Django>=5.2,<6.1
+djangorestframework>=3.15,<4.0
+
+# --- Database ---
+PyMySQL>=1.1  # MariaDB/MySQL driver (pure-Python; used when DB_ENGINE=mysql)
+
+# --- Data handling (Phase 2) ---
+pandas>=2.2
+numpy>=1.26,<3.0
+openpyxl>=3.1
+
+# --- Text embeddings (Phase 3) ---
+sentence-transformers>=3.0
+torch>=2.3
+rapidfuzz>=3.9  # fuzzy category-name shortcut in text_classifier
+
+# --- Image embeddings / validation (Phase 4) ---
+open_clip_torch>=2.24
+Pillow>=10.3
+requests>=2.32
+
+# --- Background jobs (Phase 5) ---
+celery>=5.4
+redis>=5.0
+
+# --- Config ---
+python-dotenv>=1.0
