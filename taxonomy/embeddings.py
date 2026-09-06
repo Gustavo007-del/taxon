@@ -13,6 +13,7 @@ The sentence-transformers / open_clip imports are deferred so that
 commands like `manage.py check` don't require torch to be installed.
 """
 import json
+import os
 from datetime import datetime, timezone
 
 import numpy as np
@@ -117,6 +118,28 @@ def get_taxonomy_embeddings(force=False):
 # ---------------------------------------------------------------------------
 
 CLIP_MODEL_NAME = "ViT-B-32"
+# Pretrained checkpoint for the CLIP model. Must be passed explicitly:
+# without it open_clip silently returns a RANDOMLY-initialized model whose
+# similarity scores are meaningless. The default is the canonical open_clip
+# ViT-B-32 checkpoint ("laion2b_s34b_b79k"), which open_clip downloads
+# once from Hugging Face and caches under ~/.cache/huggingface.
+CLIP_PRETRAINED = "laion2b_s34b_b79k"
+# When the checkpoint has been seeded locally via scripts/fetch_clip_checkpoint.sh
+# (curl into media/cache/clip/, see below) that file is used instead of the HF
+# tag: huggingface_hub's python downloader is slow/throttled, and a local file
+# also makes the pipeline reusable offline. Set the CLIP_PRETRAINED env var to
+# override either choice.
+_LOCAL_CLIP_CKPT = settings.MEDIA_ROOT / "cache" / "clip" / "open_clip_pytorch_model.bin"
+
+
+def _clip_pretrained():
+    """Resolve the CLIP checkpoint: env var > local seeded file > HF tag."""
+    env = os.environ.get("CLIP_PRETRAINED")
+    if env:
+        return env
+    if _LOCAL_CLIP_CKPT.exists():
+        return str(_LOCAL_CLIP_CKPT)
+    return CLIP_PRETRAINED
 CLIP_VECTORS_PATH = CACHE_DIR / "clip_taxonomy.npy"
 CLIP_META_PATH = CACHE_DIR / "clip_taxonomy_meta.json"
 
@@ -129,7 +152,9 @@ def get_clip_model(model_name=CLIP_MODEL_NAME):
     if _clip_model is None:
         import open_clip
 
-        model, _, preprocess = open_clip.create_model_and_transforms(model_name)
+        model, _, preprocess = open_clip.create_model_and_transforms(
+            model_name, pretrained=_clip_pretrained()
+        )
         tokenizer = open_clip.get_tokenizer(model_name)
         model.eval()
         _clip_model = (model, preprocess, tokenizer)
@@ -147,6 +172,8 @@ def _cached_clip_vectors(gids, model_name):
         return None
     if meta.get("model") != model_name:
         return None
+    if meta.get("pretrained") != CLIP_PRETRAINED:
+        return None  # stale vectors built by a different checkpoint (e.g. random init)
     if meta.get("category_gids") != gids:
         return None
     return vectors
@@ -159,6 +186,7 @@ def _save_clip_cache(vectors, gids, model_name):
         json.dumps(
             {
                 "model": model_name,
+                "pretrained": CLIP_PRETRAINED,
                 "category_gids": gids,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             },
