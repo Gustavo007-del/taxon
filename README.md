@@ -122,6 +122,16 @@ python manage.py classify_images --limit 10      # pass 2 fallback (downloads CL
 python manage.py classify_images                 # pass 2 on all needs_review/failed rows
 ```
 
+The image pass needs real pretrained CLIP weights (open_clip without an
+explicit checkpoint silently builds a **randomly-initialized** model whose
+scores are meaningless — always resolved via `taxonomy/embeddings.py`).
+First run downloads them from Hugging Face. If that python download is
+slow/throttled, seed the checkpoint once with curl instead:
+
+```bash
+bash scripts/fetch_clip_checkpoint.sh   # resumable; ~580 MB into media/cache/clip/
+```
+
 Both commands create a `BatchJob`, update progress after every chunk, and
 support **resume**: a re-run only picks up rows that are still unprocessed,
 `pending`, `needs_review`, or `failed`. Manually approved/rejected results
@@ -212,7 +222,9 @@ attributes and attribute values" requirement.
 
 - First runs download model weights (MiniLM, then CLIP) and build the
   category-embedding caches in `data/embeddings_cache/` — subsequent runs
-  reuse them.
+  reuse them. A CLIP checkpoint seeded via `scripts/fetch_clip_checkpoint.sh`
+  (or a `CLIP_PRETRAINED` env var pointing at a local file) is picked up
+  automatically and makes the image pass work offline too.
 - `POST /api/batch/run/` runs in a background thread — fine for the dev
   server. For production-scale batches, wire Celery (celery/redis are
   already in `requirements.txt`; the runners in `products/tasks.py` are
