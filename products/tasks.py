@@ -109,10 +109,7 @@ def run_text_job(job_id=None, options=None, log=None, err=None):
             )
         )
 
-    total = qs.count()
-    if limit:
-        qs = qs[:limit]
-        total = limit
+    total = min(qs.count(), limit) if limit else qs.count()
 
     if job_id is not None:
         job = BatchJob.objects.get(pk=job_id)
@@ -135,9 +132,21 @@ def run_text_job(job_id=None, options=None, log=None, err=None):
     processed = 0
     failed = 0
     status_counts = {}
+    seen_pks = set()
     try:
-        for start in range(0, total, chunk_size):
-            chunk = list(qs[start : start + chunk_size])
+        # "Take from the front" pagination: persisting a chunk moves its rows
+        # out of the resume filter, so slicing the queryset minus already-
+        # processed pks always yields the next unprocessed batch. The pk
+        # exclusion guarantees termination for rows that STAY in the filter
+        # (failed rows in resume mode; every row in reclassify mode).
+        while True:
+            take = chunk_size if not limit else min(chunk_size, limit - processed)
+            if take <= 0:
+                break
+            chunk = list(qs.exclude(pk__in=seen_pks)[:take]) if seen_pks else list(qs[:take])
+            if not chunk:
+                break
+            seen_pks.update(p.pk for p in chunk)
             results, chunk_failures = _classify_text_chunk(classifier, chunk, err)
             failed += len(chunk_failures)
             _persist_text_results(
@@ -293,10 +302,7 @@ def run_image_job(job_id=None, options=None, log=None, err=None):
             ]
         )
 
-    total = qs.count()
-    if limit:
-        qs = qs[:limit]
-        total = limit
+    total = min(qs.count(), limit) if limit else qs.count()
 
     if job_id is not None:
         job = BatchJob.objects.get(pk=job_id)
@@ -317,9 +323,21 @@ def run_image_job(job_id=None, options=None, log=None, err=None):
     counts = {"auto_approved": 0, "needs_review": 0, "no_images": 0, "failed": 0}
     processed = 0
     failed = 0
+    seen_pks = set()
     try:
-        for start in range(0, total, chunk_size):
-            chunk = list(qs[start : start + chunk_size])
+        # "Take from the front" pagination: _process_image_chunk moves rows
+        # out of the resume filter (needs_review -> auto_approved/failed or
+        # no_images staying needs_review), so slicing the queryset minus
+        # already-processed pks always yields the next batch. The pk
+        # exclusion guarantees termination for rows that STAY in the filter.
+        while True:
+            take = chunk_size if not limit else min(chunk_size, limit - processed)
+            if take <= 0:
+                break
+            chunk = list(qs.exclude(pk__in=seen_pks)[:take]) if seen_pks else list(qs[:take])
+            if not chunk:
+                break
+            seen_pks.update(r.pk for r in chunk)
             chunk_failed = _process_image_chunk(
                 chunk, classifier, threshold, counts, err
             )

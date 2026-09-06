@@ -29,6 +29,7 @@ TEXT_FIELDS = (
     "product_type",
     "collection_name",
     "product_color",
+    "color_collection",
 )
 
 

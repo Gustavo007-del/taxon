@@ -60,8 +60,8 @@ COLUMN_ALIASES = {
         "color",
         "colour",
         "product_colour",
-        "color_collection",
     ],
+    "color_collection": ["color_collection"],
     "image_urls": ["image_urls", "image_url", "images", "image", "photo_urls"],
     "price": ["price", "unit_price", "sale_price", "retail_price", "msrp"],
 }
@@ -249,6 +249,7 @@ class Command(BaseCommand):
                 bullets=_text(row.get("bullets")),
                 collection_name=_text(row.get("collection_name")),
                 product_color=_text(row.get("product_color")),
+                color_collection=_text(row.get("color_collection")),
                 image_urls=urls,
                 price=_price(row.get("price")),
                 raw_row={str(k): _jsonable(v) for k, v in row.items()},

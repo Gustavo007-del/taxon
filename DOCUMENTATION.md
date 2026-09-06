@@ -178,7 +178,7 @@ Seed totals (Shopify taxonomy **2026-08**, vendored): ~14,606 categories,
 | `product_number` | `unique`; dedupe key |
 | `title`, `description`, `bullets`, `materials` | free text (used by classifier) |
 | `category_raw`, `sub_category_raw` | the supplier's own category text |
-| `product_type`, `collection_name`, `product_color` | extra text signals |
+| `product_type`, `collection_name`, `product_color`, `color_collection` | extra text signals |
 | `brand` | captured when a column exists |
 | `image_urls` | JSON list — merged from `Image 1..Image 20` columns |
 | `price` | Decimal, nullable |
@@ -267,8 +267,9 @@ For each product:
    directly with `confidence = score/100` — zero embedding cost.
 2. **Embedding pass.** Otherwise embed the text blob (`title, description,
    bullets, category_raw, sub_category_raw, brand, materials, product_type,
-   collection_name, product_color`) with MiniLM and cosine-rank against the
-   cached category vectors. Top-1 becomes the prediction; top-3 are stored.
+   collection_name, product_color, color_collection`) with MiniLM and
+   cosine-rank against the cached category vectors. Top-1 becomes the
+   prediction; top-3 are stored.
 3. **Missing-info penalty.** If `description` *or* `category_raw` is
    missing, confidence is multiplied by `0.85`.
 4. **Status decision** (threshold default `0.65`):
@@ -277,7 +278,10 @@ For each product:
    - exception for a row → `failed` (retried on next run)
 5. **Attribute detection.** For every predicted category, load its
    taxonomy attributes + permitted values (2 queries with prefetch) and
-   match values (case-insensitive substring) against the product text.
+   match values against the product text: whole-word, case-insensitive
+   (`re.search(rf"\\b{value}\\b")` — so "Red" no longer matches inside
+   "requi-RED"). For color attributes the dedicated `product_color` /
+   `color_collection` fields are checked first for an exact value match.
    Stored in `detected_attributes`; up to 10 matched values per attribute.
 
 Batch behavior: chunked (`chunk_size`, default 200); progress pushed to a
@@ -405,7 +409,9 @@ aliased to model fields; the **real supplier file's 48 columns** map as:
 | `Product Sub Category` | `sub_category_raw` |
 | `Bullets` | `bullets` |
 | `Collection Name` | `collection_name` |
-| `Product Color`, `Color Collection` | `product_color` |
+| `Product Color` | `product_color` |
+| `Color Collection` | `color_collection` (its own field — not merged with
+  `Product Color`, so e.g. "Heathered Weave Ivory" + "White" both survive) |
 | `Materials` | `materials` |
 | `MSRP` (or `Item Cost`/`MAP`/`Price`) | `price` |
 | `Image 1` … `Image 20` | merged into `image_urls` (ordered) |
@@ -529,7 +535,7 @@ scripts/verify_e2e.sh --with-images   # additionally runs a 5-product image pass
 | Precomputed, cache-keyed category vectors | classification becomes one matmul; re-runs are cheap |
 | Fuzzy shortcut before embeddings | near-matching supplier categories skip the model entirely |
 | Threshold + `needs_review` + alternatives | honest about low-confidence rows; reviewer sees the top-3 |
-| Substring attribute-value matching | predictable and explainable for a prototype (vs another model) |
+| Whole-word attribute-value matching | predictable and explainable for a prototype (vs another model); word boundaries kill false positives like "Red" in "requi-RED" |
 | Chunked transactions + per-row failure isolation | one bad URL/row can't abort 10,000 products |
 | `BatchJob` row per run | progress UI + resume boundary without extra infra |
 | Same runners for CLI and API (`products/tasks.py`) | one implementation, no drift; Celery-ready later |

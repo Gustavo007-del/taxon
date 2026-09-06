@@ -27,8 +27,12 @@ detector:
 3. **Category attributes and values.** Shopify's taxonomy files attach
    attributes to categories and attribute values to attributes. For the
    predicted category we load its attributes and their permitted values and
-   match each value against the product text (case-insensitive substring);
-   matches are stored per result in `detected_attributes`
+   match each value against the product text with whole-word,
+   case-insensitive matching (word boundaries prevent false positives such
+   as "Red" inside "requi-RED"); color attributes are additionally checked
+   directly against the product's dedicated `product_color` /
+   `color_collection` fields for an exact value match. Matches are stored
+   per result in `detected_attributes`
    (`products/classifiers/attributes.py`). A *category alone* is rarely
    enough for e-commerce enrichment — the attributes (color, material,
    pattern, …) are what a listing actually needs, so we surface both.

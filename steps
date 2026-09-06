@@ -1,0 +1,42 @@
+resh start (skip if you want to keep the current 4,999-product DB)
+
+bash
+Copy
+cp .env.example .env          # optional — SQLite + DEBUG defaults work as-is
+rm db.sqlite3                 # WARNING: wipes the current DB
+venv/Scripts/python.exe manage.py migrate
+venv/Scripts/python.exe manage.py load_taxonomy   # ~14.6k categories, 1-2 min
+2. Import products — the real file (Product List.xlsx) is in the project root:
+
+bash
+Copy
+venv/Scripts/python.exe manage.py import_products --dry-run   # report first
+venv/Scripts/python.exe manage.py import_products             # 4,999 rows
+# or the sample:  python scripts/make_sample_data.py && manage.py import_products --file data/Product_List_sample.xlsx
+3. Classify
+
+bash
+Copy
+venv/Scripts/python.exe manage.py classify_products --limit 100   # pass 1 sample
+venv/Scripts/python.exe manage.py classify_products               # pass 1, everything remaining
+venv/Scripts/python.exe manage.py classify_images                  # pass 2: needs_review/failed rows only
+CLIP weights are already seeded (media/cache/clip/open_clip_pytorch_model.bin — no download needed on this machine). First-run checks: manage.py check, manage.py makemigrations --check, and scripts/verify_e2e.sh (full end-to-end on the sample).
+
+4. Look at it (current DB — skip straight here)
+
+bash
+Copy
+venv/Scripts/python.exe manage.py runserver
+# then open in the browser:
+#   http://127.0.0.1:8000/dashboard/        stat cards + Run text/image pass buttons
+#   http://127.0.0.1:8000/results/          review table (12 needs_review rows waiting)
+#   http://127.0.0.1:8000/results/<id>/     single-product review page
+#   http://127.0.0.1:8000/admin/            Django admin
+5. API (same server)
+
+bash
+Copy
+curl "http://127.0.0.1:8000/api/results/?status=needs_review&min_confidence=0.3"
+curl "http://127.0.0.1:8000/api/results/1/"                          # PATCH to approve/reject/override
+curl -X POST "http://127.0.0.1:8000/api/batch/run/" -H "Content-Type: application/json" \
+     -d '{"job_type": "text", "limit": 100}'               

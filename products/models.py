@@ -15,6 +15,7 @@ class Product(models.Model):
     bullets = models.TextField(blank=True, default="")
     collection_name = models.CharField(max_length=255, blank=True, default="")
     product_color = models.CharField(max_length=255, blank=True, default="")
+    color_collection = models.CharField(max_length=255, blank=True, default="")
     image_urls = models.JSONField(blank=True, default=list)
     price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     raw_row = models.JSONField(blank=True, default=dict)  # cheap insurance: full source row

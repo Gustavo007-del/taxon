@@ -4,10 +4,14 @@ The task requires not just a category but "relevant category attributes and
 attribute values". For each product's predicted category we list that
 category's taxonomy attributes and match value names against the product's
 text (title, description, bullets, categories, brand, materials, collection,
-color). Matching is a case-insensitive substring check — simple and
-predictable for a prototype — and results are stored on
+color). Matching is a case-insensitive whole-word check (word boundaries,
+so "Red" no longer matches inside "requi-RED"); for color attributes the
+dedicated Product Color / Color Collection fields are checked first for a
+direct, reliable match. Results are stored on
 ClassificationResult.detected_attributes.
 """
+import re
+
 from django.db.models import Prefetch
 
 MAX_MATCHED_VALUES = 10
@@ -22,7 +26,39 @@ _TEXT_FIELDS = (
     "materials",
     "collection_name",
     "product_color",
+    "color_collection",
 )
+
+# Dedicated color fields, checked directly against an attribute's value list
+# before falling back to the general text-blob scan.
+_DIRECT_COLOR_FIELDS = ("product_color", "color_collection")
+
+
+def _is_color_attribute(structure):
+    name = (structure.get("name") or "").lower()
+    handle = (structure.get("handle") or "").lower()
+    return "color" in name or "colour" in name or "color" in handle or "colour" in handle
+
+
+def _direct_color_matches(product, values):
+    """Values that exactly equal a dedicated color field (case-insensitive)."""
+    if product is None:
+        return []
+    matched = []
+    for field in _DIRECT_COLOR_FIELDS:
+        raw = getattr(product, field, None)
+        if not raw:
+            continue
+        field_text = str(raw).strip().lower()
+        for value in values:
+            if value and value.lower() == field_text and value not in matched:
+                matched.append(value)
+    return matched
+
+
+def _word_match(value, blob):
+    """Whole-word, case-insensitive match of a value within a text blob."""
+    return bool(re.search(rf"\b{re.escape(value.lower())}\b", blob))
 
 
 def build_text_sources(product):
@@ -80,14 +116,16 @@ def detect_attributes(product, structures):
     blob = build_text_sources(product)
     out = []
     for structure in structures:
+        matched = []
+        # Color attributes: exact match against the dedicated color fields
+        # first (reliable, e.g. Color Collection "White"), then fall back to
+        # the general whole-word text scan.
+        if _is_color_attribute(structure):
+            matched = _direct_color_matches(product, structure["values"])
         if blob:
-            matched = [
-                value
-                for value in structure["values"]
-                if value and value.lower() in blob
-            ]
-        else:
-            matched = []
+            for value in structure["values"]:
+                if value and value not in matched and _word_match(value, blob):
+                    matched.append(value)
         out.append(
             {
                 "name": structure["name"],
