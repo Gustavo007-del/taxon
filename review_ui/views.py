@@ -1,17 +1,86 @@
-"""Simple server-rendered review UI (Phase 6).
+"""Server-rendered review UI pages (Phase 6/7).
 
-Plain HTML forms + server-side POST handler (no JS build step); the
-DRF API under /api/ serves the same data for programmatic access.
+Rendered pages under /dashboard/, /results/, /results/<id>/ talk to the
+DRF API under /api/ for mutations (batch trigger) but keep the tables and
+forms server-rendered — no build step, consistent with the rest of the app.
 """
 import math
 
+from django.db.models import Avg, Count
 from django.shortcuts import get_object_or_404, redirect, render
 
 from products.filters import apply_result_filters
-from products.models import BatchJob, ClassificationResult
+from products.models import BatchJob, ClassificationResult, Product
 from taxonomy.models import TaxonomyCategory
 
 PAGE_SIZE = 200
+
+
+def _gid_maps(gids):
+    """Resolve a set of shopify gids to (pk, name) lookup dicts."""
+    gids = {g for g in gids if g}
+    if not gids:
+        return {}, {}
+    gid_to_pk = dict(
+        TaxonomyCategory.objects.filter(shopify_gid__in=gids).values_list(
+            "shopify_gid", "pk"
+        )
+    )
+    gid_to_name = dict(
+        TaxonomyCategory.objects.filter(shopify_gid__in=gids).values_list(
+            "shopify_gid", "name"
+        )
+    )
+    return gid_to_pk, gid_to_name
+
+
+def _result_gids(results):
+    return {
+        alt.get("shopify_gid")
+        for r in results
+        for alt in (r.alternatives or [])
+        if alt.get("shopify_gid")
+    }
+
+
+def dashboard(request):
+    """Summary stats + recent batch jobs + classification run trigger."""
+    products_total = Product.objects.count()
+    by_status = {
+        row["status"]: row["count"]
+        for row in ClassificationResult.objects.values("status").annotate(
+            count=Count("pk")
+        )
+    }
+    results_total = sum(by_status.values())
+
+    avg = ClassificationResult.objects.filter(
+        final_confidence__isnull=False
+    ).aggregate(a=Avg("final_confidence"))["a"]
+
+    jobs = BatchJob.objects.all()[:8]
+    jobs_data = [
+        {
+            "job": j,
+            "pct": round(100 * j.processed / j.total) if j.total else 0,
+        }
+        for j in jobs
+    ]
+
+    context = {
+        "stats": {
+            "products_total": products_total,
+            "pending": products_total - results_total,
+            "auto_approved": by_status.get(ClassificationResult.Status.AUTO_APPROVED, 0),
+            "needs_review": by_status.get(ClassificationResult.Status.NEEDS_REVIEW, 0),
+            "approved": by_status.get(ClassificationResult.Status.APPROVED, 0),
+            "rejected": by_status.get(ClassificationResult.Status.REJECTED, 0),
+            "failed": by_status.get(ClassificationResult.Status.FAILED, 0),
+            "avg_confidence": round(avg, 3) if avg is not None else None,
+        },
+        "jobs": jobs_data,
+    }
+    return render(request, "review_ui/dashboard.html", context)
 
 
 def results_list(request):
@@ -29,25 +98,7 @@ def results_list(request):
     page = min(page, pages)
 
     results = list(qs[(page - 1) * PAGE_SIZE : page * PAGE_SIZE])
-
-    # Resolve alternatives' shopify_gids to category pks/names so the
-    # per-row "set category" dropdown can offer them as options.
-    gids = {
-        alt.get("shopify_gid")
-        for r in results
-        for alt in (r.alternatives or [])
-        if alt.get("shopify_gid")
-    }
-    gid_to_pk = dict(
-        TaxonomyCategory.objects.filter(shopify_gid__in=gids).values_list(
-            "shopify_gid", "pk"
-        )
-    )
-    gid_to_name = dict(
-        TaxonomyCategory.objects.filter(shopify_gid__in=gids).values_list(
-            "shopify_gid", "name"
-        )
-    )
+    gid_to_pk, gid_to_name = _gid_maps(_result_gids(results))
 
     base_query = {k: v for k, v in request.GET.items() if k != "page"}
     context = {
@@ -62,6 +113,21 @@ def results_list(request):
         "status_choices": ClassificationResult.Status.choices,
     }
     return render(request, "review_ui/results_list.html", context)
+
+
+def result_detail(request, result_id):
+    """Full product view with approve / reject / set-category actions."""
+    result = get_object_or_404(
+        ClassificationResult.objects.select_related("product", "predicted_category"),
+        pk=result_id,
+    )
+    gid_to_pk, gid_to_name = _gid_maps(_result_gids([result]))
+    context = {
+        "result": result,
+        "gid_to_pk": gid_to_pk,
+        "gid_to_name": gid_to_name,
+    }
+    return render(request, "review_ui/result_detail.html", context)
 
 
 def update_result(request, result_id):
@@ -88,5 +154,8 @@ def update_result(request, result_id):
                 update_fields=["predicted_category", "status", "updated_at"]
             )
 
-    query = request.GET.urlencode()
-    return redirect(f"/?{query}" if query else "/")
+    # Return to the page the form came from (relative path only).
+    next_url = request.POST.get("next") or "/"
+    if not next_url.startswith("/") or "://" in next_url:
+        next_url = "/"
+    return redirect(next_url)

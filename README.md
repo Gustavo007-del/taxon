@@ -1,7 +1,12 @@
 # Shopify Product Classifier — Freebuff Desktop prototype
 
+> **Full documentation** (architecture, schema, pipeline internals, API and
+> UI reference, step-by-step run instructions): see [`DOCUMENTATION.md`](DOCUMENTATION.md).
+> **Interview answers** to the 15 test questions: see [`TEST_ANSWERS.md`](TEST_ANSWERS.md).
+> This README is the quick start.
+
 A Django prototype that classifies products from a supplier spreadsheet
-(`Product_List.xlsx`) into **Shopify's Product Taxonomy** (14,606 categories),
+(`Product List.xlsx`) into **Shopify's Product Taxonomy** (14,606 categories),
 using only free/local models — no paid LLM/API calls. Two-pass design:
 
 1. **Pass 1 — text** (`all-MiniLM-L6-v2`): fast, cheap, covers every product.
@@ -30,6 +35,7 @@ boost, disagreement → manual review).
 │   │   ├── text_classifier.py    # pass 1: fuzzy shortcut + embedding top-3
 │   │   ├── image_classifier.py   # pass 2: CLIP image -> category
 │   │   ├── image_utils.py        # concurrent download, validation, caching
+│   │   ├── attributes.py         # detect category attributes + values in product text
 │   │   └── pipeline.py           # combine text + image scores
 │   ├── serializers.py / views.py / urls.py   # /api/ endpoints
 │   └── management/commands/
@@ -37,7 +43,10 @@ boost, disagreement → manual review).
 │       ├── classify_products.py  # pass 1 (Phase 3)
 │       ├── classify_images.py    # pass 2 (Phase 4)
 │       └── spot_check.py         # print a sample for manual review
-├── review_ui/         # plain-HTML review table at / (no build step)
+├── review_ui/         # Tailwind review UI (no build step): dashboard, results, detail
+│   ├── views.py / urls.py
+│   ├── templates/review_ui/   # base.html, dashboard.html, results_list.html, result_detail.html
+│   └── static/review_ui/app.js  # fetch(): run batch + progress polling
 ├── scripts/
 │   ├── make_sample_data.py       # generates data/Product_List_sample.xlsx
 │   └── verify_e2e.sh             # fresh-clone end-to-end check
@@ -81,16 +90,23 @@ python manage.py load_taxonomy --reset  # wipe and re-seed
 
 ## Import products
 
-The importer tolerates messy spreadsheets: normalized header aliases, NaN
-cells, currency-formatted prices, comma-separated image URLs, duplicate
-product numbers (skipped + logged), and non-ASCII text.
+The importer matches the **real supplier layout**: `Product Number`,
+`Product Category`, `Product Sub Category`, `Product Name`,
+`Product Description`, `Bullets`, `Collection Name`, `Product Color`,
+`Materials`, `MSRP`, and images spread across `Image 1`..`Image 20`
+(merged, in order, into the product's image list). Beyond that it
+tolerates messy spreadsheets: header aliases, NaN cells,
+currency-formatted prices, comma-separated image URLs, duplicate product
+numbers (skipped + logged), and non-ASCII text. Unmapped columns are
+kept verbatim in each product's `raw_row`.
 
 ```bash
-# Try it on the generated sample (150 rows with deliberate edge cases):
+# Try it on the generated sample (150 rows, same columns, deliberate edge cases):
 python scripts/make_sample_data.py
 python manage.py import_products --file data/Product_List_sample.xlsx
 
-# Real file: drop Product_List.xlsx in the project root (or data/) and run:
+# Real file: drop 'Product List.xlsx' (or Product_List.xlsx) in the project
+# root or data/, then:
 python manage.py import_products              # finds it automatically
 python manage.py import_products --dry-run    # report only, nothing written
 ```
@@ -124,22 +140,38 @@ curl localhost:8000/api/batch/1/            # {"status": "running", "processed":
 (`fuzzy`, `fuzzy_threshold`, `confidence_threshold`, `batch_size`,
 `chunk_size`, `reclassify`, `limit`, `workers`, `threshold`, `all_results`).
 
-## Review
+## Review UI
 
 ```bash
 python manage.py runserver
 ```
 
-- **`http://localhost:8000/`** — review table: filters (status / min
-  confidence / search), status badges, top-3 alternatives, per-row
-  Approve / Reject / Set-category buttons (plain HTML forms).
+The frontend is server-rendered Django templates styled with **Tailwind CSS
+(via CDN, no build step)** and light vanilla JS (`review_ui/static/
+review_ui/app.js`) that talks to the DRF API via `fetch()`:
+
+- **`http://localhost:8000/dashboard/`** — stat cards (products, pending,
+  auto-approved, needs review, approved/rejected/failed, avg confidence),
+  **Run text pass / Run image pass** buttons (POST `/api/batch/run/`, then
+  live-poll `GET /api/batch/{id}/` for a progress bar), and recent batch
+  jobs with progress.
+- **`http://localhost:8000/results/`** (also at `/` for backwards
+  compatibility) — filterable results table: status / min-confidence /
+  search filters, confidence + status badges, detected attribute/value
+  matches, per-row Approve / Reject / Set-category actions, and a link to
+  each result's detail page.
+- **`http://localhost:8000/results/{id}/`** — product info + image gallery
+  beside the prediction panel (category, text/image/final confidence,
+  alternatives, detected attributes) with approve / reject / override
+  controls.
 - **`http://localhost:8000/admin/`** — full Django admin (taxonomy,
   products, results, batch jobs).
-- **API**:
+- **API** (same origin as the pages, so no CORS setup):
   - `GET /api/results/?status=needs_review&min_confidence=0.4&q=&limit=&offset=`
   - `GET /api/results/{id}/` · `PATCH /api/results/{id}/` — edit category
     (`{"predicted_category_id": 123}`), approve/reject (`{"status": "approved"}`)
-  - `GET /api/batch/{id}/` — progress
+  - `POST /api/batch/run/` (`{"job_type": "text"|"image", ...}`) ·
+    `GET /api/batch/{id}/` — progress
 - **Spot-check** from the terminal:
 
 ```bash
@@ -167,6 +199,14 @@ Confidence combining (`products/classifiers/pipeline.py`): same category
 from both passes → `min(1.0, avg + 0.1)`; different categories → the lower
 score and forced `needs_review` with both top-3 lists stored as
 `alternatives`; no text prediction → the image result is adopted.
+
+**Category attributes & values**: for every classified product the app
+also detects the predicted category's taxonomy attributes and which of
+their values actually appear in the product's text (title, description,
+bullets, category columns, materials, collection, color). Stored as
+`ClassificationResult.detected_attributes`, surfaced in the review table
+and in `GET /api/results/` — matches the task's "detect relevant category
+attributes and attribute values" requirement.
 
 ## Known caveats
 

@@ -1,0 +1,100 @@
+{% extends "review_ui/base.html" %}
+{% block title %}Dashboard — Shopify Product Classifier{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-xl font-semibold">Dashboard</h1>
+  <div class="flex items-center gap-2 text-sm">
+    <label class="text-gray-600" for="batch-limit">Limit</label>
+    <input id="batch-limit" type="number" min="0" placeholder="all" value=""
+           class="border border-gray-300 rounded px-2 py-1 w-24">
+    <button data-run="text" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-3 py-1.5 rounded">
+      Run text pass
+    </button>
+    <button data-run="image" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-1.5 rounded">
+      Run image pass
+    </button>
+  </div>
+</div>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6" id="stat-cards">
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+    <div class="text-2xl font-semibold">{{ stats.products_total }}</div>
+    <div class="text-sm text-gray-500">Products imported</div>
+  </div>
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+    <div class="text-2xl font-semibold">{{ stats.pending }}</div>
+    <div class="text-sm text-gray-500">Pending (not classified)</div>
+  </div>
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+    <div class="text-2xl font-semibold {% if stats.auto_approved %}text-green-600{% endif %}">{{ stats.auto_approved }}</div>
+    <div class="text-sm text-gray-500">Auto-approved</div>
+  </div>
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+    <div class="text-2xl font-semibold {% if stats.needs_review %}text-amber-600{% endif %}">{{ stats.needs_review }}</div>
+    <div class="text-sm text-gray-500">Needs review</div>
+  </div>
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+    <div class="text-2xl font-semibold">{{ stats.approved }}</div>
+    <div class="text-sm text-gray-500">Approved (manual)</div>
+  </div>
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+    <div class="text-2xl font-semibold">{{ stats.rejected }}</div>
+    <div class="text-sm text-gray-500">Rejected</div>
+  </div>
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+    <div class="text-2xl font-semibold {% if stats.failed %}text-purple-700{% endif %}">{{ stats.failed }}</div>
+    <div class="text-sm text-gray-500">Failed</div>
+  </div>
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+    <div class="text-2xl font-semibold">{% if stats.avg_confidence is not None %}{{ stats.avg_confidence }}{% else %}—{% endif %}</div>
+    <div class="text-sm text-gray-500">Avg final confidence</div>
+  </div>
+</div>
+
+{# Live progress area: app.js appends a card per started job. #}
+<div id="batch-progress" class="space-y-2 mb-6"></div>
+
+<div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+  <div class="px-4 py-3 border-b border-gray-200 font-medium text-sm">Recent batch jobs</div>
+  <table class="w-full text-sm">
+    <thead class="bg-gray-50 text-left text-gray-500 text-xs uppercase">
+      <tr>
+        <th class="px-4 py-2">Job</th>
+        <th class="px-4 py-2">Status</th>
+        <th class="px-4 py-2 w-1/3">Progress</th>
+        <th class="px-4 py-2">Result</th>
+        <th class="px-4 py-2">Started</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in jobs %}
+        <tr class="border-t border-gray-100">
+          <td class="px-4 py-2">{{ entry.job.get_job_type_display }}</td>
+          <td class="px-4 py-2">
+            <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium
+              {% if entry.job.status == 'completed' %}bg-green-100 text-green-700
+              {% elif entry.job.status == 'failed' %}bg-red-100 text-red-700
+              {% else %}bg-blue-100 text-blue-700{% endif %}">
+              {{ entry.job.get_status_display }}
+            </span>
+          </td>
+          <td class="px-4 py-2">
+            <div class="flex items-center gap-2">
+              <div class="flex-1 bg-gray-200 rounded h-2 overflow-hidden">
+                <div class="h-2 bg-blue-500 rounded" style="width: {{ entry.pct }}%"></div>
+              </div>
+              <span class="text-xs text-gray-500">{{ entry.job.processed }}/{{ entry.job.total }}</span>
+            </div>
+          </td>
+          <td class="px-4 py-2 text-xs text-gray-500">
+            {% if entry.job.failed %}{{ entry.job.failed }} failed{% else %}—{% endif %}
+          </td>
+          <td class="px-4 py-2 text-xs text-gray-500">{{ entry.job.started_at|date:"Y-m-d H:i" }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5" class="px-4 py-6 text-center text-gray-400">No batch jobs yet — run a classification pass above.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

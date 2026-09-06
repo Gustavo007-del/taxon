@@ -1,0 +1,26 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Shopify Product Classifier{% endblock %}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-900">
+{# Render the CSRF token once so app.js can read the cookie for fetch() calls. #}
+<div class="hidden">{% csrf_token %}</div>
+<nav class="bg-white border-b border-gray-200 shadow-sm">
+  <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-6">
+    <span class="font-semibold text-gray-800">Shopify Product Classifier</span>
+    <a href="{% url 'review-dashboard' %}" class="text-sm text-gray-600 hover:text-gray-900">Dashboard</a>
+    <a href="{% url 'review-results-list' %}" class="text-sm text-gray-600 hover:text-gray-900">Results</a>
+    <a href="/admin/" class="text-sm text-gray-600 hover:text-gray-900 ml-auto">Admin</a>
+  </div>
+</nav>
+<main class="max-w-7xl mx-auto px-4 py-6">
+  {% block content %}{% endblock %}
+</main>
+<script src="{% static 'review_ui/app.js' %}"></script>
+</body>
+</html>

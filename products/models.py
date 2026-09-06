@@ -2,7 +2,7 @@ from django.db import models
 
 
 class Product(models.Model):
-    """A product row mirrored from the supplier spreadsheet (Product_List.xlsx)."""
+    """A product row mirrored from the supplier spreadsheet (Product List.xlsx)."""
 
     product_number = models.CharField(max_length=255, unique=True)
     title = models.CharField(max_length=1024, blank=True, default="")
@@ -11,6 +11,10 @@ class Product(models.Model):
     sub_category_raw = models.CharField(max_length=512, blank=True, default="")
     brand = models.CharField(max_length=255, blank=True, default="")
     materials = models.CharField(max_length=1024, blank=True, default="")
+    product_type = models.CharField(max_length=255, blank=True, default="")
+    bullets = models.TextField(blank=True, default="")
+    collection_name = models.CharField(max_length=255, blank=True, default="")
+    product_color = models.CharField(max_length=255, blank=True, default="")
     image_urls = models.JSONField(blank=True, default=list)
     price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     raw_row = models.JSONField(blank=True, default=dict)  # cheap insurance: full source row
@@ -56,6 +60,9 @@ class ClassificationResult(models.Model):
     final_confidence = models.FloatField(null=True, blank=True)
     # Top-3 candidate categories: [{"shopify_gid": ..., "name": ..., "score": ...}]
     alternatives = models.JSONField(blank=True, default=list)
+    # Detected taxonomy attributes/values for the predicted category:
+    # [{"name": ..., "handle": ..., "values": [...], "value_count": ...}]
+    detected_attributes = models.JSONField(blank=True, default=list)
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.PENDING
     )

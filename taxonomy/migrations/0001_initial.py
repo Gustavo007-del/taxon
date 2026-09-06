@@ -90,35 +90,6 @@ class Migration(migrations.Migration):
                 "verbose_name_plural": "taxonomy attribute values",
             },
         ),
-        migrations.CreateModel(
-            name="TaxonomyAttribute_categories",
-            fields=[
-                (
-                    "id",
-                    models.BigAutoField(
-                        auto_created=True,
-                        primary_key=True,
-                        serialize=False,
-                        verbose_name="ID",
-                    ),
-                ),
-                (
-                    "taxonomyattribute",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        to="taxonomy.taxonomyattribute",
-                    ),
-                ),
-                (
-                    "taxonomycategory",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        to="taxonomy.taxonomycategory",
-                    ),
-                ),
-            ],
-            options={"unique_together": {("taxonomyattribute", "taxonomycategory")}},
-        ),
         migrations.AddField(
             model_name="taxonomyattribute",
             name="categories",

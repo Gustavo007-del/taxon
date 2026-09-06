@@ -12,6 +12,7 @@ Strategy:
 """
 import numpy as np
 
+from products.classifiers.attributes import attach_attributes, attributes_map
 from taxonomy.embeddings import get_model, get_taxonomy_embeddings
 
 # Confidence multiplier applied when a product lacks description or category_raw.
@@ -20,10 +21,14 @@ MISSING_INFO_PENALTY = 0.85
 TEXT_FIELDS = (
     "title",
     "description",
+    "bullets",
     "category_raw",
     "sub_category_raw",
     "brand",
     "materials",
+    "product_type",
+    "collection_name",
+    "product_color",
 )
 
 
@@ -85,6 +90,21 @@ class TextClassifier:
 
         if to_embed:
             results.extend(self._embed_pass(to_embed))
+
+        # Attribute/value detection for each product's predicted category
+        # (one prefetch per chunk; matches product text against value names).
+        if results:
+            products_by_id = {product.pk: product for product in products}
+            predicted_pks = {
+                result["predicted_pk"]
+                for result in results
+                if result["predicted_pk"]
+            }
+            attach_attributes(
+                results,
+                products_by_id,
+                attributes_map(predicted_pks),
+            )
         return results
 
     # -- internals -------------------------------------------------------

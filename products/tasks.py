@@ -13,6 +13,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from products.batch import finish_job, start_job, update_progress
+from products.classifiers.attributes import attributes_map, detect_attributes
 from products.classifiers.image_classifier import ImageClassifier
 from products.classifiers.pipeline import combine_results
 from products.classifiers.text_classifier import TextClassifier
@@ -25,17 +26,20 @@ _TEXT_UPDATE_FIELDS = (
     "text_confidence",
     "final_confidence",
     "alternatives",
+    "detected_attributes",
     "status",
     "method_used",
     "updated_at",
 )
 
 _IMAGE_UPDATE_FIELDS = (
+    "predicted_category",
     "image_confidence",
     "final_confidence",
     "method_used",
     "status",
     "alternatives",
+    "detected_attributes",
     "updated_at",
 )
 
@@ -194,6 +198,7 @@ def _persist_text_results(results, failures, reclassify, threshold, status_count
                 "predicted_pk": None,
                 "confidence": 0.0,
                 "alternatives": [],
+                "attributes": [],
                 "failed": True,
                 "reason": reason,
             }
@@ -230,6 +235,7 @@ def _persist_text_results(results, failures, reclassify, threshold, status_count
             text_confidence=result["confidence"],
             final_confidence=result["confidence"],
             alternatives=result["alternatives"],
+            detected_attributes=result.get("attributes", []),
             status=status,
             method_used=ClassificationResult.Method.TEXT_ONLY,
         )
@@ -366,6 +372,11 @@ def _process_image_chunk(chunk, classifier, threshold, counts, err):
             "confidence": result.text_confidence or 0.0,
             "alternatives": result.alternatives,
         }
+        if text_result["predicted_gid"] is None:
+            # No text prediction — adopt the image category too (not just its
+            # score), so the stored prediction matches the boosted confidence.
+            result.predicted_category_id = image_result["predicted_pk"]
+
         combined = combine_results(text_result, image_result, threshold)
 
         result.image_confidence = image_result["confidence"]
@@ -378,5 +389,19 @@ def _process_image_chunk(chunk, classifier, threshold, counts, err):
         updates.append(result)
 
     if updates:
+        # Re-detect attributes against each row's final category (which the
+        # image pass may have adopted), so the stored attribute list always
+        # matches the stored prediction.
+        final_pks = {
+            r.predicted_category_id for r in updates if r.predicted_category_id
+        }
+        structures = attributes_map(final_pks)
+        for result in updates:
+            if result.status == ClassificationResult.Status.FAILED:
+                continue  # keep whatever attributes the text pass stored
+            product = result.product
+            result.detected_attributes = detect_attributes(
+                product, structures.get(result.predicted_category_id)
+            )
         ClassificationResult.objects.bulk_update(updates, _IMAGE_UPDATE_FIELDS)
     return failed
