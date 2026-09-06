@@ -12,7 +12,7 @@ class TaxonomyCategory(models.Model):
     )
     name = models.CharField(max_length=255)
     full_path = models.CharField(
-        max_length=500,
+        max_length=255,
         unique=True,
         # Full hierarchical path joined with " > ", e.g.
         # "Home & Garden > Furniture > Sofas". Capped at 500 chars so the
