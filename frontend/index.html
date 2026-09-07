@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shopify Product Classifier</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* Boot loader: shown instantly, removed by main.jsx once React mounts. */
+      #boot-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #f3f4f6;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      #boot-loader .boot-spin {
+        width: 46px;
+        height: 46px;
+        border: 4px solid #dbeafe;
+        border-top-color: #2563eb;
+        border-radius: 50%;
+        animation: boot-spin 0.8s linear infinite;
+      }
+      #boot-loader .boot-pulse {
+        margin-top: 14px;
+        color: #6b7280;
+        font-size: 14px;
+        animation: boot-pulse 1.6s ease-in-out infinite;
+      }
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes boot-pulse {
+        0%,
+        100% {
+          opacity: 0.55;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="boot-loader">
+      <div class="boot-spin"></div>
+      <p class="boot-pulse">Loading Shopify Product Classifier…</p>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

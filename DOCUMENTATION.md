@@ -4,10 +4,6 @@ Comprehensive companion to the shorter `README.md`. It covers **everything
 implemented**, the **technologies used**, **how the system works**, and
 **step-by-step run instructions**.
 
-> Prototype state: the codebase is complete and statically reviewed, but has
-> never been executed (no Python available on the machine it was built on).
-> The first run on a real Python machine should follow
-> [First-run verification](#first-run-verification).
 
 ---
 
@@ -76,7 +72,7 @@ category**, cached on disk (`data/embeddings_cache/`) so re-runs are cheap.
 | Image validation | Pillow, requests | open/decode check, download with retry |
 | Fuzzy shortcut | rapidfuzz | near-match category names without embeddings |
 | Background jobs | Celery + redis (optional; currently background threads) | resumable batch processing at scale |
-| Frontend | Django templates + **Tailwind CSS (CDN)** + vanilla JS `fetch()` | no Node/build step |
+| Frontend | **React SPA** (Vite + react-router, Tailwind CDN) served by Django | friendly reviewer UI: %, loading states, tooltips, onboarding; classic templates kept as fallback |
 | Config | python-dotenv (`.env`) | per-machine DB/secret settings |
 
 ### requirements.txt (with purpose)
@@ -337,20 +333,27 @@ Targets rows whose pass-1 result is `needs_review` or `failed` (or, with
 
 ## 7. Web UI & API reference
 
-### 7.1 Pages (server-rendered, Tailwind via CDN, no build step)
+### 7.1 Pages
+
+Primary UI is a **React SPA** (Vite build in `frontend/`, served by Django at
+the site root; assets from `frontend/dist` under `/static/`). The classic
+server-rendered pages remain available as a no-build fallback:
 
 | URL | Page | Purpose |
 |---|---|---|
-| `/` (and `/results/`) | Results list | filter (status / min confidence / search), badges, per-row approve/reject/set, pagination |
-| `/dashboard/` | Dashboard | stat cards, run text/image passes, live progress, recent jobs |
-| `/results/<id>/` | Result detail | product info + images + full prediction panel + review actions |
+| `/` | SPA dashboard | stat cards (icons), run text/image passes with spinner + live progress, recent jobs |
+| `/results` | SPA results list | status filter, min-confidence slider, search, % badges, tooltips, per-row approve/reject/override, pagination |
+| `/results/<id>/` | SPA result detail | product info + image gallery + prediction panel (0–100% confidence) + review actions |
+| `/legacy/dashboard/`, `/legacy/results/`, `/legacy/results/<id>/` | classic fallback pages | identical functionality, no build step |
 | `/admin/` | Django admin | taxonomy, products, results, batch jobs |
 
-The results forms are plain CSRF-protected POSTs handled by
-`review_ui.views.update_result` (approve / reject / set category; setting a
-category counts as the review decision → `approved`). The dashboard's
-run buttons and progress polling live in
-`review_ui/static/review_ui/app.js` (CSRF-aware `fetch`, poll every 2 s).
+`/app/...` URLs (from an earlier layout) redirect to the root equivalents.
+
+The SPA calls the DRF API with a CSRF-aware `fetch` (`frontend/src/api.js`);
+PATCHes update rows in place. The classic pages' forms are CSRF-protected
+POSTs handled by `review_ui.views.update_result`, and their run/progress
+buttons live in `review_ui/static/review_ui/app.js`. If `frontend/dist` is
+missing, `/` falls back to the classic dashboard.
 
 ### 7.2 API endpoints (DRF, same origin — no CORS needed)
 

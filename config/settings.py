@@ -125,6 +125,10 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# Built React SPA assets (frontend/dist) are served at /static/ alongside the
+# app's own static files. Vite builds with base="/static/" so index.html
+# references /static/assets/... (see frontend/vite.config.js).
+STATICFILES_DIRS = [BASE_DIR / "frontend" / "dist"]
 
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"  # downloaded product images (Phase 4)

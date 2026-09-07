@@ -1,10 +1,5 @@
 # Shopify Product Classifier — Freebuff Desktop prototype
 
-> **Full documentation** (architecture, schema, pipeline internals, API and
-> UI reference, step-by-step run instructions): see [`DOCUMENTATION.md`](DOCUMENTATION.md).
-> **Interview answers** to the 15 test questions: see [`TEST_ANSWERS.md`](TEST_ANSWERS.md).
-> This README is the quick start.
-
 A Django prototype that classifies products from a supplier spreadsheet
 (`Product List.xlsx`) into **Shopify's Product Taxonomy** (14,606 categories),
 using only free/local models — no paid LLM/API calls. Two-pass design:
@@ -43,10 +38,14 @@ boost, disagreement → manual review).
 │       ├── classify_products.py  # pass 1 (Phase 3)
 │       ├── classify_images.py    # pass 2 (Phase 4)
 │       └── spot_check.py         # print a sample for manual review
-├── review_ui/         # Tailwind review UI (no build step): dashboard, results, detail
-│   ├── views.py / urls.py
-│   ├── templates/review_ui/   # base.html, dashboard.html, results_list.html, result_detail.html
-│   └── static/review_ui/app.js  # fetch(): run batch + progress polling
+├── frontend/          # React SPA (Vite + react-router): the main UI
+│   ├── src/pages/     # Dashboard, Results List, Result Detail
+│   ├── src/components/  # badges, tooltips, icons, skeletons, onboarding modal
+│   └── src/api.js     # fetch() wrapper for the /api/ endpoints
+├── review_ui/         # classic server-rendered fallback (dashboard, results, detail)
+│   ├── views.py / urls.py          # + serves the built SPA at / and /app/
+│   ├── templates/review_ui/        # base, dashboard, results_list, result_detail
+│   └── static/review_ui/app.js     # fetch(): run batch + progress polling
 ├── scripts/
 │   ├── make_sample_data.py       # generates data/Product_List_sample.xlsx
 │   └── verify_e2e.sh             # fresh-clone end-to-end check
@@ -70,13 +69,10 @@ python -m venv .venv
 # Linux / macOS:        source .venv/bin/activate
 pip install -r requirements.txt
 
-cp .env.example .env        # edit DB settings if using MariaDB
-python manage.py migrate    # creates db.sqlite3 (SQLite) by default
+cp .env.example .env        # edit DB settings with MariaDB credentials
+python manage.py makemigrations
+python manage.py migrate    
 ```
-
-To use MariaDB/MySQL instead, set `DB_ENGINE=mysql` plus `DB_NAME`,
-`DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` in `.env` (PyMySQL is the
-pure-Python driver; no native client library needed).
 
 ## Load the taxonomy (one-time)
 
@@ -90,22 +86,11 @@ python manage.py load_taxonomy --reset  # wipe and re-seed
 
 ## Import products
 
-The importer matches the **real supplier layout**: `Product Number`,
-`Product Category`, `Product Sub Category`, `Product Name`,
-`Product Description`, `Bullets`, `Collection Name`, `Product Color`,
-`Materials`, `MSRP`, and images spread across `Image 1`..`Image 20`
-(merged, in order, into the product's image list). Beyond that it
-tolerates messy spreadsheets: header aliases, NaN cells,
-currency-formatted prices, comma-separated image URLs, duplicate product
-numbers (skipped + logged), and non-ASCII text. Unmapped columns are
-kept verbatim in each product's `raw_row`.
-
 ```bash
-# Try it on the generated sample (150 rows, same columns, deliberate edge cases):
-python scripts/make_sample_data.py
+# if using different product list sheet:
 python manage.py import_products --file data/Product_List_sample.xlsx
 
-# Real file: drop 'Product List.xlsx' (or Product_List.xlsx) in the project
+# Real file: drop 'Product List.xlsx' (or Product_List.xlsx) in the project, sheet name is sensitive so give it as mentioned or else use the above method using --file:
 # root or data/, then:
 python manage.py import_products              # finds it automatically
 python manage.py import_products --dry-run    # report only, nothing written
@@ -116,11 +101,12 @@ python manage.py import_products --dry-run    # report only, nothing written
 **CLI** (recommended for big runs):
 
 ```bash
-python manage.py classify_products --limit 100   # pass 1 on a sample first
 python manage.py classify_products               # pass 1 on everything remaining
 python manage.py classify_images --limit 10      # pass 2 fallback (downloads CLIP weights first run)
 python manage.py classify_images                 # pass 2 on all needs_review/failed rows
 ```
+#After this run the server
+python manage.py runserver
 
 The image pass needs real pretrained CLIP weights (open_clip without an
 explicit checkpoint silently builds a **randomly-initialized** model whose
@@ -156,33 +142,59 @@ curl localhost:8000/api/batch/1/            # {"status": "running", "processed":
 python manage.py runserver
 ```
 
-The frontend is server-rendered Django templates styled with **Tailwind CSS
-(via CDN, no build step)** and light vanilla JS (`review_ui/static/
-review_ui/app.js`) that talks to the DRF API via `fetch()`:
+The main frontend is a **React SPA** (Vite + react-router) built in
+`frontend/` and served by Django from the same origin. The site root **`/`**
+is the SPA — no prefix needed:
 
-- **`http://localhost:8000/dashboard/`** — stat cards (products, pending,
-  auto-approved, needs review, approved/rejected/failed, avg confidence),
-  **Run text pass / Run image pass** buttons (POST `/api/batch/run/`, then
-  live-poll `GET /api/batch/{id}/` for a progress bar), and recent batch
-  jobs with progress.
-- **`http://localhost:8000/results/`** (also at `/` for backwards
-  compatibility) — filterable results table: status / min-confidence /
-  search filters, confidence + status badges, detected attribute/value
-  matches, per-row Approve / Reject / Set-category actions, and a link to
-  each result's detail page.
+- **`http://localhost:8000/`** — SPA dashboard: stat cards with icons,
+  **Run text pass / Run image pass** buttons with an inline spinner + live
+  progress bar (polling `GET /api/batch/{id}/`), recent batch jobs.
+- **`http://localhost:8000/results`** — filterable results table: status
+  dropdown, **min-confidence slider**, search, per-row Approve / Reject /
+  Override actions, tooltips + "ⓘ" hints on every column, pagination.
 - **`http://localhost:8000/results/{id}/`** — product info + image gallery
-  beside the prediction panel (category, text/image/final confidence,
-  alternatives, detected attributes) with approve / reject / override
-  controls.
-- **`http://localhost:8000/admin/`** — full Django admin (taxonomy,
-  products, results, batch jobs).
-- **API** (same origin as the pages, so no CORS setup):
-  - `GET /api/results/?status=needs_review&min_confidence=0.4&q=&limit=&offset=`
-  - `GET /api/results/{id}/` · `PATCH /api/results/{id}/` — edit category
-    (`{"predicted_category_id": 123}`), approve/reject (`{"status": "approved"}`)
-  - `POST /api/batch/run/` (`{"job_type": "text"|"image", ...}`) ·
-    `GET /api/batch/{id}/` — progress
-- **Spot-check** from the terminal:
+  beside the prediction panel (category, text/image/final confidence shown
+  as **0–100%**, alternatives with scores, detected attributes) with
+  approve / reject / override controls.
+- Confidences render as percentages (≥75% green, 50–74% amber, <50% red).
+  A first-visit welcome modal explains the pages (dismissible, "don't show
+  again" option). Loading states use skeletons; empty states are friendly.
+
+
+Local dev can run two ways.
+
+python manage.py runserver serves the app at http://localhost:8000, including the API and the built frontend.
+npm run dev in frontend/ runs the React dev server at http://localhost:5173, which is faster for frontend edits.
+Both show the same app. When editing React code, use the Vite dev server on 5173. For everything else, or when you want the Django-integrated version, use 8000.
+
+Build / dev for the SPA (Node 20+; a portable Node can live in a gitignored
+`.nodejs/` folder):
+
+```bash
+cd frontend
+npm install
+npm run build            # outputs frontend/dist, served by Django at /static/
+npm run dev              # Vite on :5173, proxies /api and /media to Django :8000
+```
+
+The **classic server-rendered pages are still available** (no build step,
+rollback path) under `/legacy/dashboard/`, `/legacy/results/`,
+`/legacy/results/{id}/`, plus `/admin/`. Old `/app/...` bookmarks redirect
+to the root equivalents. If `frontend/dist` is missing, `/` falls back to
+the classic dashboard instead of erroring.
+
+**API** (same origin as the pages, so no CORS setup):
+- `GET /api/stats/` — dashboard summary counts (products, by-status,
+  avg confidence, recent jobs)
+- `GET /api/results/?status=needs_review&min_confidence=0.4&q=&limit=&offset=`
+- `GET /api/results/{id}/` · `PATCH /api/results/{id}/` — edit category
+  (`{"predicted_category_id": 123}`), approve/reject (`{"status": "approved"}`)
+- `GET /api/categories/?gids=...` · `?q=...` — resolve taxonomy categories
+  for override dropdowns / pickers
+- `POST /api/batch/run/` (`{"job_type": "text"|"image", ...}`) ·
+  `GET /api/batch/{id}/` — progress
+
+**Spot-check** from the terminal:
 
 ```bash
 python manage.py spot_check --limit 20
@@ -230,5 +242,5 @@ attributes and attribute values" requirement.
   already in `requirements.txt`; the runners in `products/tasks.py` are
   designed to be wrapped in `@shared_task`).
 - The review API and forms have **no authentication** — dev prototype only.
-- SQLite is single-writer; use MariaDB (`DB_ENGINE=mysql`) for concurrent
+-  use MariaDB (`DB_ENGINE=mysql`) for concurrent
   use or large runs.

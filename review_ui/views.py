@@ -1,19 +1,74 @@
-"""Server-rendered review UI pages (Phase 6/7).
+"""Review UI pages: React SPA host + server-rendered fallback (classic).
 
-Rendered pages under /dashboard/, /results/, /results/<id>/ talk to the
-DRF API under /api/ for mutations (batch trigger) but keep the tables and
-forms server-rendered — no build step, consistent with the rest of the app.
+The React SPA (frontend/dist) is served at the site root (/) and talks to
+the DRF API under /api/. Old /app/... URLs redirect to root equivalents.
+The classic pages live under /legacy/ for backwards compatibility and
+rollback when frontend/dist is missing.
 """
 import math
 
+from django.conf import settings
 from django.db.models import Avg, Count
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.csrf import ensure_csrf_cookie
 
 from products.filters import apply_result_filters
 from products.models import BatchJob, ClassificationResult, Product
 from taxonomy.models import TaxonomyCategory
 
 PAGE_SIZE = 200
+
+SPA_INDEX = settings.BASE_DIR / "frontend" / "dist" / "index.html"
+
+
+def spa_built():
+    return SPA_INDEX.exists()
+
+
+@ensure_csrf_cookie
+def spa_index(request, *args, **kwargs):
+    """Serve the built React SPA (frontend/dist/index.html).
+
+    ensure_csrf_cookie makes the CSRF cookie available to the SPA's fetch()
+    calls (same mechanism the classic base.html used with {% csrf_token %}).
+    Falls back to a short notice page when the frontend isn't built, so this
+    route never 404s in a fresh checkout.
+    """
+    if spa_built():
+        return HttpResponse(
+            SPA_INDEX.read_text(encoding="utf-8"),
+            content_type="text/html; charset=utf-8",
+        )
+    return HttpResponse(
+        "<!DOCTYPE html><html lang='en'><body style='font-family:sans-serif;padding:2rem'>"
+        "<h2>React frontend not built yet</h2>"
+        "<p>Build it from the <code>frontend/</code> directory with "
+        "<code>npm install && npm run build</code>, then reload this page. "
+        "Meanwhile the classic pages still work at "
+        "<a href='/legacy/dashboard/'>/legacy/dashboard/</a> and "
+        "<a href='/legacy/results/'>/legacy/results/</a>.</p>"
+        "</body></html>",
+        content_type="text/html; charset=utf-8",
+    )
+
+
+def spa_or_dashboard(request):
+    """Root route: the React SPA when built, otherwise the classic dashboard."""
+    if spa_built():
+        return spa_index(request)
+    return redirect("review-dashboard")
+
+
+def spa_redirect(request, rest=""):
+    """Redirect old /app/... URLs to their root equivalents.
+
+    /app            -> /dashboard
+    /app/results    -> /results
+    /app/results/5  -> /results/5
+    """
+    target = f"/{rest}" if rest else "/dashboard"
+    return redirect(target)
 
 
 def _gid_maps(gids):

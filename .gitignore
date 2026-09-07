@@ -27,5 +27,12 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+
+# Portable Node toolchain (used to build the frontend on machines without Node)
+.nodejs/
+
 # Freebuff app internals
 .freebuff/

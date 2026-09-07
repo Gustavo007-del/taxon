@@ -1,6 +1,7 @@
 """DRF API views for results review + batch progress (Phase 6)."""
 import threading
 
+from django.db.models import Avg, Count
 from django.shortcuts import get_object_or_404
 from rest_framework import status as http_status
 from rest_framework.exceptions import ValidationError
@@ -9,10 +10,79 @@ from rest_framework.views import APIView
 
 from products.batch import start_job
 from products.filters import apply_result_filters
-from products.models import BatchJob, ClassificationResult
-from products.serializers import ClassificationResultSerializer
+from products.models import BatchJob, ClassificationResult, Product
+from products.serializers import (
+    CategoryBriefSerializer,
+    ClassificationResultSerializer,
+)
+from taxonomy.models import TaxonomyCategory
 
 MAX_PAGE_SIZE = 500
+
+
+class StatsView(APIView):
+    """GET /api/stats/ — dashboard summary counts."""
+
+    def get(self, request):
+        products_total = Product.objects.count()
+        by_status = {
+            row["status"]: row["count"]
+            for row in ClassificationResult.objects.values("status").annotate(
+                count=Count("pk")
+            )
+        }
+        results_total = sum(by_status.values())
+        avg = ClassificationResult.objects.filter(
+            final_confidence__isnull=False
+        ).aggregate(a=Avg("final_confidence"))["a"]
+
+        jobs = BatchJob.objects.all()[:8]
+        return Response(
+            {
+                "products_total": products_total,
+                "results_total": results_total,
+                "pending": products_total - results_total,
+                "by_status": {
+                    value: by_status.get(value, 0)
+                    for value, label in ClassificationResult.Status.choices
+                },
+                "avg_confidence": round(avg, 4) if avg is not None else None,
+                "recent_jobs": [
+                    {
+                        "id": j.pk,
+                        "job_type": j.job_type,
+                        "status": j.status,
+                        "total": j.total,
+                        "processed": j.processed,
+                        "failed": j.failed,
+                        "options": j.options,
+                        "started_at": j.started_at,
+                        "finished_at": j.finished_at,
+                    }
+                    for j in jobs
+                ],
+            }
+        )
+
+
+class CategoryListView(APIView):
+    """GET /api/categories/?gids=a,b,c — resolve taxonomy categories by gid.
+
+    The review UI needs category primary keys to build "override category"
+    dropdowns from result.alternatives (which only carry shopify gids).
+    Also supports ?q= full-path search for category pickers.
+    """
+
+    def get(self, request):
+        qs = TaxonomyCategory.objects.all()
+        gids = [g.strip() for g in request.GET.get("gids", "").split(",") if g.strip()]
+        if gids:
+            qs = qs.filter(shopify_gid__in=gids)
+        q = request.GET.get("q")
+        if q:
+            qs = qs.filter(full_path__icontains=q)
+        data = CategoryBriefSerializer(qs[:500], many=True).data
+        return Response({"count": len(data), "results": data})
 
 
 class ClassificationResultList(APIView):

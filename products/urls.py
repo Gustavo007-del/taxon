@@ -4,11 +4,15 @@ from django.urls import path
 from products.views import (
     BatchJobDetail,
     BatchRunView,
+    CategoryListView,
     ClassificationResultDetail,
     ClassificationResultList,
+    StatsView,
 )
 
 urlpatterns = [
+    path("stats/", StatsView.as_view(), name="api-stats"),
+    path("categories/", CategoryListView.as_view(), name="api-categories"),
     path("results/", ClassificationResultList.as_view(), name="api-result-list"),
     path(
         "results/<int:pk>/",
